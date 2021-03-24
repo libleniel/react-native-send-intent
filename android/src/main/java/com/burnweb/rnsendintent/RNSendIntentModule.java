@@ -609,36 +609,72 @@ public class RNSendIntentModule extends ReactContextBaseJavaModule {
 
     @ReactMethod
     public void openChromeIntent(String dataUri, final Promise promise) {
+        // https://public.cloud.myinfo.gov.sg/sglogin/SingPass-login-specs-v0.1.html#section/Tutorial/Tutorial-1:-Displaying-the-SingPass-QR
+
         // following intent syntax of: https://developer.chrome.com/multidevice/android/intents
         Intent sendIntent;
         PackageManager packageManager = this.reactContext.getPackageManager();
 
-        try {
-            sendIntent = Intent.parseUri(dataUri, Intent.URI_INTENT_SCHEME);
-            sendIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            // try to find activity that can handle the chrome intent
-            ResolveInfo info = packageManager.resolveActivity(sendIntent, 0);
+        if (dataUri.contains("intent://")) {
+            try {
+                sendIntent = Intent.parseUri(dataUri, Intent.URI_INTENT_SCHEME);
+                sendIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                // try to find activity that can handle the chrome intent
+                ResolveInfo info = packageManager.resolveActivity(sendIntent, 0);
+    
+                // if activity is found, meaning not null
+                if (info != null) {
+                    this.reactContext.startActivity(sendIntent);
+                    promise.resolve("true");
+                    return;
+                }
 
-            // if activity is found, meaning not null
-            if (info != null) {
-                this.reactContext.startActivity(sendIntent);
-                promise.resolve(true);
-                return;
+                // if activity not found, load fallback URL from chrome intent
+                String fallbackUrl = sendIntent.getStringExtra("browser_fallback_url");
+                if(fallbackUrl != null) {
+                    Intent fallbackUrlIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(fallbackUrl));
+                    fallbackUrlIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    this.reactContext.startActivity(fallbackUrlIntent);
+                    promise.resolve("true");
+                    return;
+                }
+            } catch (Exception e) {
+                // e.printStackTrace();
+                promise.resolve("https://singpassmobile.sg/qrlogin");
             }
-            // if activity not found, load fallback URL from chrome intent
-            String fallbackUrl = sendIntent.getStringExtra("browser_fallback_url");
-            if(fallbackUrl != null) {
-                Intent fallbackUrlIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(fallbackUrl));
-                this.reactContext.startActivity(fallbackUrlIntent);
-                promise.resolve(true);
-                return;
-            }
+        } else {            
+            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(dataUri));
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            // Check if there are activities that can handle
+            if (packageManager.resolveActivity(intent, 0) != null) {
+                List < ResolveInfo > list = packageManager.queryIntentActivities(intent, 0);
+                boolean spmInstalled = false;
 
-            promise.resolve(false);
-        } catch (Exception e) {
-            e.printStackTrace();
-            promise.resolve(false);
+                // Iterate handler activties and filter out SingPass Mobile
+                for (ResolveInfo info: list) {
+                    if (info.activityInfo.packageName.equalsIgnoreCase("sg.ndi.sp")) {
+                        spmInstalled = true;
+                        break;
+                    }
+                }
+
+                if (spmInstalled) {
+                    // If Singpass Mobile found, launch it
+                    intent.setPackage("sg.ndi.sp");
+                    this.reactContext.startActivity(intent);
+
+                    promise.resolve("true");
+                } else {
+                    // If Singpass Mobile not found, load Url in webview
+                    promise.resolve("https://singpassmobile.sg/qrlogin");
+                }
+            } else {
+                // If no activities can handle URL, load it in webview
+                promise.resolve("https://singpassmobile.sg/qrlogin");
+            }
         }
+
+        promise.resolve("https://singpassmobile.sg/qrlogin");
     }
 
     @ReactMethod
